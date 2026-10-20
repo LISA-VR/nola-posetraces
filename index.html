@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>NoLa Posetraces</title>
+<style>
+  /* Layout: a lab viewer. Progress line, one player row (video | 3D camera path), then the gallery. */
+  :root {
+    --raw: #eb6834; --clean: #2a78d6;
+    --bg: #f3f4f2; --panel: #ffffff; --ink: #1b1d1c; --mute: #5f6663; --line: #dde0dc;
+    --accent: #0b7a75; --accent-ink: #ffffff; --viewport: #0f1312; --ok: #2e9d5b; --prov: #c99a2e; --todo: #d8dbd6;
+    --sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #121514; --panel: #1a1e1d; --ink: #e8ecea; --mute: #9aa4a0; --line: #2a302e;
+    --accent: #3fbfb6; --accent-ink: #06201e; --todo: #343a38; --raw: #d95926; --clean: #3987e5; color-scheme: dark } }
+  :root[data-theme="dark"] {
+    --bg: #121514; --panel: #1a1e1d; --ink: #e8ecea; --mute: #9aa4a0; --line: #2a302e;
+    --accent: #3fbfb6; --accent-ink: #06201e; --todo: #343a38; --raw: #d95926; --clean: #3987e5; color-scheme: dark }
+  * { box-sizing: border-box }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans) }
+  .wrap { max-width: 1440px; margin: 0 auto; padding-block: 20px 48px;
+          padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+          display: grid; gap: 16px }
+  header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between }
+  h1 { font-size: 24px; font-weight: 600; margin: 0; letter-spacing: -0.01em }
+  .sub { color: var(--mute); font-size: 13px; font-family: var(--mono); font-variant-numeric: tabular-nums }
+  .progress { display: grid; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px }
+  .bar { height: 8px; border-radius: 4px; background: var(--todo); overflow: hidden } .bar i { display: block; height: 100%; background: var(--accent) }
+  button { font: 500 13px var(--sans); padding: 8px 13px; border-radius: 7px; border: 1px solid var(--line);
+           background: var(--panel); color: var(--ink); cursor: pointer }
+  a.btn { font: 500 13px var(--sans); padding: 8px 13px; border-radius: 7px; border: 1px solid var(--line);
+          background: var(--panel); color: var(--ink); text-decoration: none; display: inline-block }
+  a.btn:hover { border-color: var(--accent) }
+  button:hover { border-color: var(--accent) } button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent) }
+  button:disabled { opacity: .55; cursor: progress }
+  .row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line) }
+  .tabs button { border: 0; border-radius: 0; background: none; color: var(--mute); padding: 9px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px }
+  .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent) }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden }
+  .seg button { border: 0; border-radius: 0; background: var(--panel) } .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink) }
+  .player { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; background: var(--panel);
+            border: 1px solid var(--line); border-radius: 12px; padding: 14px }
+  @media (max-width: 860px) { .player { grid-template-columns: minmax(0, 1fr) } }
+  .player video, #view3d { width: 100%; max-width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; background: var(--viewport); display: block }
+  .cap { color: var(--mute); font-size: 12px; margin-top: 6px }
+  .meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; justify-content: space-between }
+  .meta h2 { margin: 0; font-size: 18px; font-weight: 600; font-family: var(--mono) }
+  .meta p { margin: 2px 0 0; color: var(--mute); max-width: 70ch }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px }
+  #dlall { display: contents }
+  .kind { font: 500 11px var(--sans); text-transform: uppercase; letter-spacing: .08em; color: var(--mute); margin: 10px 0 8px }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr)); gap: 12px }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: pointer;
+          text-align: left; padding: 0; display: block; width: 100%; color: var(--ink) }
+  .card[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) }
+  .card video { width: 100%; aspect-ratio: 16 / 9; display: block; background: var(--viewport) }
+  .card span { display: block; padding: 8px 10px 10px }
+  .card b { font: 500 13px var(--mono) } .card small { display: block; color: var(--mute); font-size: 12px; margin-top: 2px }
+  .frames { display: grid; grid-template-columns: repeat(50, minmax(0, 1fr)); gap: 2px; background: var(--panel);
+            border: 1px solid var(--line); border-radius: 10px; padding: 10px }
+  .frames a, .frames span { aspect-ratio: 1; border-radius: 2px; background: var(--todo) } .frames a { background: var(--ok) }
+  .frames span.p { background: var(--prov) }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 10px; vertical-align: -1px }
+  .note { color: var(--mute); font-size: 13px; max-width: 80ch }
+  #msg { min-height: 1.2em }
+  .cleaning { display: grid; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px }
+  .stats { display: flex; flex-wrap: wrap; gap: 8px 28px } .stats div { display: grid } .stats b { font: 600 18px var(--mono); font-variant-numeric: tabular-nums }
+  .stats span { color: var(--mute); font-size: 12px }
+  .legend2 { display: flex; gap: 16px; font-size: 13px; color: var(--mute) } .legend2 i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: 3px; margin-right: 6px }
+  .chart { position: relative } .chart svg { width: 100%; height: 240px; display: block; overflow: visible }
+  .chart text { fill: var(--mute); font: 11px var(--mono) } .chart .grid { stroke: var(--line); stroke-width: 1 }
+  .tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+         padding: 6px 9px; font: 12px var(--mono); color: var(--ink); white-space: nowrap; box-shadow: 0 2px 8px rgb(0 0 0 / .12) }
+  details table { border-collapse: collapse; font: 12px var(--mono); font-variant-numeric: tabular-nums }
+  details td, details th { padding: 3px 10px; border-bottom: 1px solid var(--line); text-align: right }
+  details .scroll { overflow-x: auto; max-height: 320px; overflow-y: auto }
+  @media (prefers-reduced-motion: reduce) { .card video { display: none } }
+</style>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/"}}</script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1>NoLa Posetraces</h1><div class="sub" id="status">Loading traces…</div></div>
+    <div class="actions"><a class="btn" href="https://github.com/LISA-VR/nola-posetraces" target="_blank" rel="noopener">GitHub repository</a>
+      <span id="dlall"></span></div>
+  </header>
+  <section class="progress" aria-label="Training progress">
+    <div class="row"><b>Training</b><span class="sub" id="ptext">…</span></div>
+    <div class="bar"><i id="pbar" style="width:0%"></i></div>
+    <div class="sub" id="pscenes"></div>
+  </section>
+  <div class="sub" id="msg" role="status"></div>
+  <div><button type="button" id="newvid" hidden></button></div>
+  <div class="row">
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div class="seg" id="variants" aria-label="Floaters"></div>
+  </div>
+  <section class="player" aria-label="Selected trace">
+    <div><video id="vid" controls loop muted playsinline controlslist="nodownload" disablepictureinpicture></video><div class="cap" id="vcap"></div></div>
+    <div><canvas id="view3d" aria-label="3D view of the camera path, the rig cameras and the scene points"></canvas>
+      <div class="cap">Grey: the capture rig's cameras. Coloured line: the trace, blue at the start to red at the end. Yellow: the camera at the current video frame. Drag to orbit, scroll to zoom.</div></div>
+    <div class="meta">
+      <div><h2 id="tname"></h2><p id="tdesc"></p></div>
+      <div class="actions">
+        <button type="button" id="dlv">Video (.mp4)</button>
+        <button type="button" id="dlj">Poses (.json)</button>
+        <button type="button" id="dlc">Poses (.csv)</button>
+      </div>
+    </div>
+  </section>
+  <div id="gallery"></div>
+  <section class="cleaning" id="cleaning" hidden aria-label="Floater cleaning">
+    <div class="row"><b>Floater cleaning</b><span class="sub" id="cl-sub"></span></div>
+    <div class="stats" id="cl-stats"></div>
+    <div class="legend2"><span><i style="background:var(--raw)"></i>Raw</span><span><i style="background:var(--clean)"></i>Floaters removed</span></div>
+    <div class="chart" id="cl-chart"><svg id="cl-svg" role="img" aria-label="Held-out PSNR per frame, raw and with floaters removed"></svg><div class="tip" id="cl-tip" hidden></div></div>
+    <details><summary class="sub">Table: every frame</summary><div class="scroll"><table id="cl-table"></table></div></details>
+  </section>
+  <section id="models" hidden>
+    <div class="row"><div class="kind" id="mtitle">Trained models</div>
+      <div class="seg" id="zipsel" hidden><button type="button" data-z="clean" aria-pressed="true">Floaters removed</button><button type="button" data-z="raw" aria-pressed="false">Raw</button></div></div>
+    <div class="frames" id="frames"></div>
+    <div class="note legend"><i style="background:var(--ok)"></i>trained here<i style="background:var(--prov)"></i>trained on the main PC (not on this server)<i style="background:var(--todo)"></i>pending</div>
+  </section>
+  <p class="note">Each trace has 300 poses at 30 fps; pose t is rendered from the Gaussian-splat model of capture frame t, so the scene's motion plays along. Videos cover the frames trained so far. Poses are in the dataset's original COLMAP world with an OpenCV camera (x right, y down, z forward). JSON holds the 4×4 camera-to-world matrix and fx, fy, cx, cy per frame for a 1920×1080 image; CSV holds the camera centre, the camera-to-world quaternion (w, x, y, z) and the intrinsics. Floaters removed = multi-view support (a Gaussian must weigh ≥ 0.5 px in ≥ 4 rig views) and world z in [4, 11].</p>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+const KIND = { 'realistic': 'Realistic viewer motion', 'cinematic': 'Cinematic', 'original-like': 'Like the delivered posetraces' };
+let D = null, scene = null, cur = null, variant = 'clean', ver = '';
+
+// ---------- 3D view
+const canvas = $('view3d');
+let R = null;
+try { R = new THREE.WebGLRenderer({ canvas, antialias: true }); }
+catch (e) { canvas.insertAdjacentHTML('afterend', '<div class="cap">The 3D view needs WebGL, which this browser could not start.</div>'); }
+const S3 = new THREE.Scene(); S3.background = new THREE.Color(0x0f1312);
+const cam = new THREE.PerspectiveCamera(45, 16 / 9, 0.05, 200);
+const ctl = new OrbitControls(cam, canvas); ctl.enableDamping = true;
+const W = new THREE.Group(); S3.add(W);
+const v3 = (p, i = 0) => new THREE.Vector3(p[i], p[i + 1], -p[i + 2]);  // rig (right, up, forward) -> three
+let frust = null, pathLine = null;
+function setFrustum(e) {
+  const p = v3(e), f = v3(e, 3).normalize(), u = v3(e, 6).normalize();
+  const r = new THREE.Vector3().crossVectors(f, u).normalize(), d = 0.9, w = 0.45, h = 0.26;
+  const c = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, y]) => p.clone().addScaledVector(f, d).addScaledVector(r, x * w).addScaledVector(u, y * h));
+  const pts = [p, c[0], p, c[1], p, c[2], p, c[3], c[0], c[1], c[1], c[2], c[2], c[3], c[3], c[0]];
+  if (!frust) { frust = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffd23f })); W.add(frust); }
+  frust.geometry.setFromPoints(pts);
+}
+function buildScene3d(g) {
+  W.clear(); frust = null; pathLine = null;
+  const n = g.points.length, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  g.points.forEach((p, i) => { pos.set([p[0], p[1], -p[2]], i * 3); col.set([p[3] / 255, p[4] / 255, p[5] / 255], i * 3); });
+  const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); pg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  W.add(new THREE.Points(pg, new THREE.PointsMaterial({ size: 0.05, vertexColors: true })));
+  const rig = []; g.cams.forEach(c => { const p = v3(c); rig.push(p, p.clone().addScaledVector(v3(c, 3).normalize(), 0.5)); });
+  W.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(rig), new THREE.LineBasicMaterial({ color: 0x8a918e })));
+  cam.position.set(-7, 5, 6); ctl.target.set(0, -0.3, -4); ctl.update();
+}
+function showPath(tr) {
+  if (pathLine) W.remove(pathLine);
+  const pts = tr.path.map(e => v3(e)), n = pts.length, col = new Float32Array(n * 3), c = new THREE.Color();
+  for (let i = 0; i < n; i++) { c.setHSL(0.58 - 0.58 * i / n, 0.85, 0.58); col.set([c.r, c.g, c.b], i * 3); }
+  const g = new THREE.BufferGeometry().setFromPoints(pts); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  pathLine = new THREE.Line(g, new THREE.LineBasicMaterial({ vertexColors: true })); W.add(pathLine);
+  setFrustum(tr.path[0]);
+}
+function resize() { const w = canvas.clientWidth, h = canvas.clientHeight; if (w && (canvas.width !== w || canvas.height !== h)) { R.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); } }
+(function loop() { if (!R) return; requestAnimationFrame(loop); resize(); ctl.update();
+  if (cur && D) {  // video frame -> pose index: the video starts at its variant's first frame
+    const a = D.scenes[scene].spans[variant][0];
+    setFrustum(cur.path[Math.min(cur.path.length - 1, a + Math.floor($('vid').currentTime * D.fps))]);
+  }
+  R.render(S3, cam); })();
+
+// ---------- downloads (plain browser downloads)
+const say = t => { $('msg').textContent = t; };
+function saveBlob(filename, blob) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+async function save(filename, url) {
+  try { saveBlob(filename, await (await fetch(url)).blob()); say(`Downloading ${filename}.`); }
+  catch (e) { say(`Could not download ${filename}.`); }
+}
+function zipLabel() {  // one archive per scene and variant: every video with its poses (a plain browser download)
+  const box = $('dlall'); box.textContent = '';
+  for (const [sc, z] of Object.entries((D && D.zips) || {})) for (const [v, f] of Object.entries(z)) {
+    const a = document.createElement('a'); a.className = 'btn'; a.href = f.url; a.download = f.url.split('/').pop();
+    a.textContent = `${sc}, ${D.variants[v]}: all videos + poses (${Math.round(f.size / 1e6)} MB)`;
+    a.onclick = () => say(`Downloading ${a.download} (${Math.round(f.size / 1e6)} MB); your browser shows the progress.`);
+    box.appendChild(a);
+  }
+}
+$('newvid').onclick = applyPending;
+
+// ---------- progress (live status.json when served next to the page, else the snapshot in data.json)
+function hm(s) { return `${Math.floor(s / 3600)} h ${String(Math.round(s % 3600 / 60)).padStart(2, '0')} min`; }
+function showProgress(P, live) {
+  if (!P) return;
+  const pct = P.total ? 100 * P.done / P.total : 0;
+  $('pbar').style.width = pct.toFixed(1) + '%';
+  $('ptext').textContent = `${P.done} / ${P.total} frames trained (${pct.toFixed(0)}%) · ${P.running} running · ${P.rate_per_h} in the last hour`
+    + (P.eta_s ? ` · about ${hm(P.eta_s)} left (done ~${P.eta_at})` : P.done >= P.total ? ' · finished' : '')
+    + (live ? '' : ` · as of ${P.time}`);
+  $('pscenes').textContent = Object.entries(P.scenes).map(([n, s]) => `${n}: ${s.trained.length}/${s.to_train}`).join(' · ');
+  if (D && D.models) drawFrames(P);
+}
+async function status() {
+  try { const P = await (await fetch('status.json', { cache: 'no-store' })).json(); showProgress(P, true); return true; }
+  catch (e) { return false; }
+}
+
+// ---------- page
+// Over slow or intermittent links (github.io from mainland China) a streamed video stalls mid-play.
+// The small watch-only copies are fetched completely first and played from memory.
+const blobs = new Map();
+async function fetchBlob(url) {
+  if (!blobs.has(url)) blobs.set(url, fetch(url).then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+                                       .then(b => URL.createObjectURL(b)).catch(e => { blobs.delete(url); throw e; }));
+  return blobs.get(url);
+}
+let playToken = 0;
+async function loadWhole(v, url, isMain) {
+  const tok = isMain ? ++playToken : 0;
+  if (isMain) $('vcap').dataset.loading = '1';
+  try {
+    const obj = await fetchBlob(url);
+    if (isMain && tok !== playToken) return;  // another trace was selected meanwhile
+    v.src = obj; v.play().catch(() => {});
+  } catch (e) { v.src = url; v.play().catch(() => {}); }  // fall back to streaming
+}
+const thumbQueue = []; let thumbBusy = 0;
+function queueThumb(v, url) { thumbQueue.push([v, url]); pumpThumbs(); }
+function pumpThumbs() {
+  while (thumbBusy < 3 && thumbQueue.length) {
+    const [v, url] = thumbQueue.shift(); thumbBusy++;
+    fetchBlob(url).then(obj => { if (v.isConnected) { v.src = obj; v.play().catch(() => {}); } })
+                  .catch(() => {}).finally(() => { thumbBusy--; pumpThumbs(); });
+  }
+}
+function spanTextOf(x, v) { const [a, b] = x.spans[v]; return b > a ? `frames ${a}–${b - 1}` : 'no frames yet'; }
+function spanText(sc, v) { const [a, b] = D.scenes[sc].spans[v]; return b > a ? `frames ${a}–${b - 1}` : 'no frames yet'; }
+function select(tr) {
+  cur = tr;
+  // the player streams the light 640x360 copy; downloads always serve the full 1920x1080 video
+  const v = $('vid'), url = tr.videos[variant], play = (tr.views || {})[variant] || url;
+  if (play) loadWhole(v, play + '?v=' + ver, true); else v.removeAttribute('src');
+  const [a0, b0] = D.scenes[scene].spans[variant], prov = (D.scenes[scene].provided || []).filter(f => f >= a0 && f < b0);
+  const provTxt = prov.length ? ` · frames ${prov[0]}–${prov[prov.length - 1]} still use the provided cleaned PLYs (replaced when retrained here)` : '';
+  $('vcap').textContent = url ? `${D.variants[variant]} · ${spanText(scene, variant)} of ${D.nframes} · preview at 640×360, the download button gives the full 1920×1080 video${provTxt}`
+                              : `${D.variants[variant]}: video pending (frames still training / rendering)`;
+  $('tname').textContent = tr.name;
+  $('tdesc').textContent = `${KIND[tr.kind] || tr.kind}: ${tr.desc}.`;
+  $('dlv').disabled = !url; $('dlv').onclick = () => save(`${scene}_${tr.name}_${variant}.mp4`, url);
+  $('dlj').onclick = () => save(`${scene}_${tr.name}.json`, tr.json);
+  $('dlc').onclick = () => save(`${scene}_${tr.name}.csv`, tr.csv);
+  document.querySelectorAll('.card').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.name === tr.name)));
+  showPath(tr);
+}
+function drawGallery() {
+  const sc = D.scenes[scene], gal = $('gallery'); gal.replaceChildren();
+  for (const kind of Object.keys(KIND)) {
+    const ts = sc.traces.filter(t => t.kind === kind); if (!ts.length) continue;
+    const h = document.createElement('div'); h.className = 'kind'; h.textContent = `${KIND[kind]} · ${ts.length}`; gal.appendChild(h);
+    const grid = document.createElement('div'); grid.className = 'grid'; gal.appendChild(grid);
+    for (const t of ts) {
+      const c = document.createElement('button'); c.type = 'button'; c.className = 'card'; c.dataset.name = t.name;
+      // light 384 px previews: dozens of autoplaying 1080p streams stall the browser's decoders
+      const v = document.createElement('video'), th = (t.thumbs || {})[variant];
+      if (th) { v.preload = 'none'; queueThumb(v, th + '?v=' + ver); } else { v.preload = 'none'; }
+      v.muted = true; v.loop = true; v.playsInline = true;
+      const s = document.createElement('span'); const b = document.createElement('b'); b.textContent = t.name;
+      const sm = document.createElement('small'); sm.textContent = t.desc; s.append(b, sm); c.append(v, s);
+      c.onclick = () => { select(t); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+      grid.appendChild(c);
+    }
+  }
+}
+let zipVariant = 'clean', lastP = null;
+document.querySelectorAll('#zipsel button').forEach(b => b.onclick = () => {
+  zipVariant = b.dataset.z; document.querySelectorAll('#zipsel button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); drawFrames(lastP);
+});
+function drawFrames(P) {
+  if (P) lastP = P;
+  P = P || lastP;
+  const name = scene, trainedHere = new Set((P && P.scenes[name] ? P.scenes[name].trained : D.scenes[name].trained));
+  const start = D.scenes[name].train_start, fr = $('frames'); fr.replaceChildren();
+  for (let i = 0; i < D.nframes; i++) {
+    const id = String(i).padStart(4, '0');
+    if (trainedHere.has(i) && D.models !== 'links') {
+      const s = document.createElement('a'); s.title = `frame ${i}: trained (PLYs are on the lab server)`; fr.appendChild(s);
+    } else if (trainedHere.has(i)) {
+      const a = document.createElement('a'); a.href = `zips/${name}/frame_${id}_${zipVariant}.zip`; a.download = `${name}_frame_${id}_${zipVariant}.zip`;
+      a.title = `frame ${i}: download the ${zipVariant === 'raw' ? 'raw' : 'floaters-removed'} PLY (zip)`; fr.appendChild(a);
+    } else {
+      const s = document.createElement('span'); if (i < start) s.className = 'p';
+      s.title = `frame ${i}: ${i < start ? 'trained on the main PC' : 'pending'}`; fr.appendChild(s);
+    }
+  }
+}
+function drawCleaning() {
+  const rows = (D.scenes[scene].cleaning || []);
+  $('cleaning').hidden = !rows.length; if (!rows.length) return;
+  const mean = k => rows.reduce((a, r) => a + r[k], 0) / rows.length, f2 = x => x.toFixed(2), sg = x => (x >= 0 ? '+' : '') + x.toFixed(2);
+  const kept = 100 * rows.reduce((a, r) => a + r.gaussians_after / r.gaussians_before, 0) / rows.length;
+  const tb = mean('psnr_test_before'), ta = mean('psnr_test_after'), rb = mean('psnr_train_before'), ra = mean('psnr_train_after');
+  $('cl-sub').textContent = `${rows.length} frames cleaned · ≥ 0.5 px weight in ≥ 4 views, world z in [4, 11]`;
+  $('cl-stats').innerHTML = '';
+  for (const [v, l] of [[`${f2(tb)} → ${f2(ta)} dB`, `held-out PSNR (${sg(ta - tb)} dB)`], [`${f2(rb)} → ${f2(ra)} dB`, `training-view PSNR (${sg(ra - rb)} dB)`], [`${kept.toFixed(1)} %`, 'of the Gaussians kept']]) {
+    const d = document.createElement('div'); const b = document.createElement('b'); b.textContent = v; const sp = document.createElement('span'); sp.textContent = l; d.append(b, sp); $('cl-stats').appendChild(d);
+  }
+  // line chart: x = frame, y = held-out PSNR
+  const svg = $('cl-svg'), Wd = svg.clientWidth || 800, Ht = 240, m = { l: 44, r: 96, t: 10, b: 26 };
+  const xs = rows.map(r => r.frame), ys = rows.flatMap(r => [r.psnr_test_before, r.psnr_test_after]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs, x0 + 1), lo = Math.floor(Math.min(...ys) * 2) / 2, hi = Math.ceil(Math.max(...ys) * 2) / 2 || lo + 1;
+  const X = f => m.l + (f - x0) / (x1 - x0) * (Wd - m.l - m.r), Y = v => m.t + (1 - (v - lo) / ((hi - lo) || 1)) * (Ht - m.t - m.b);
+  let g = '';
+  const step = (hi - lo) / 4;
+  for (let i = 0; i <= 4; i++) { const v = lo + i * step; g += `<line class="grid" x1="${m.l}" x2="${Wd - m.r}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${m.l - 6}" y="${Y(v) + 4}" text-anchor="end">${v.toFixed(1)}</text>`; }
+  for (const f of [x0, Math.round((x0 + x1) / 2), x1]) g += `<text x="${X(f)}" y="${Ht - 6}" text-anchor="middle">frame ${f}</text>`;
+  const line = (k, c) => `<polyline fill="none" stroke="var(${c})" stroke-width="2" stroke-linejoin="round" points="${rows.map(r => `${X(r.frame).toFixed(1)},${Y(r[k]).toFixed(1)}`).join(' ')}"/>`;
+  const last = rows[rows.length - 1], ly = [Y(last.psnr_test_before), Y(last.psnr_test_after)];
+  if (Math.abs(ly[0] - ly[1]) < 12) { const mid = (ly[0] + ly[1]) / 2, up = last.psnr_test_after >= last.psnr_test_before; ly[1] = mid + (up ? -7 : 7); ly[0] = mid + (up ? 7 : -7); }
+  g += line('psnr_test_before', '--raw') + line('psnr_test_after', '--clean');
+  g += `<text x="${Wd - m.r + 6}" y="${ly[0] + 4}">Raw</text><text x="${Wd - m.r + 6}" y="${ly[1] + 4}">Removed</text>`;
+  g += `<line id="cl-x" class="grid" y1="${m.t}" y2="${Ht - m.b}" style="stroke:var(--mute)" visibility="hidden"/>`;
+  g += `<rect x="${m.l}" y="${m.t}" width="${Wd - m.l - m.r}" height="${Ht - m.t - m.b}" fill="transparent" id="cl-hit"/>`;
+  svg.setAttribute('viewBox', `0 0 ${Wd} ${Ht}`); svg.innerHTML = g;
+  const tip = $('cl-tip'), cx = $('cl-x');
+  $('cl-hit').onmousemove = e => {
+    const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) * Wd / r.width;
+    const row = rows.reduce((b, q) => Math.abs(X(q.frame) - px) < Math.abs(X(b.frame) - px) ? q : b);
+    cx.setAttribute('x1', X(row.frame)); cx.setAttribute('x2', X(row.frame)); cx.setAttribute('visibility', 'visible');
+    tip.hidden = false;
+    tip.textContent = `frame ${row.frame} · held-out ${f2(row.psnr_test_before)} → ${f2(row.psnr_test_after)} dB · kept ${(100 * row.gaussians_after / row.gaussians_before).toFixed(1)} %`;
+    const left = X(row.frame) * r.width / Wd; tip.style.left = Math.min(left + 12, r.width - tip.offsetWidth) + 'px'; tip.style.top = '8px';
+  };
+  $('cl-hit').onmouseleave = () => { tip.hidden = true; cx.setAttribute('visibility', 'hidden'); };
+  const t = $('cl-table'); t.innerHTML = '<tr><th>frame</th><th>Gaussians before</th><th>after</th><th>held-out PSNR before</th><th>after</th><th>training PSNR before</th><th>after</th></tr>';
+  for (const r of rows) { const tr = document.createElement('tr'); for (const v of [r.frame, r.gaussians_before, r.gaussians_after, f2(r.psnr_test_before), f2(r.psnr_test_after), f2(r.psnr_train_before), f2(r.psnr_train_after)]) { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); } t.appendChild(tr); }
+}
+function showScene(name) {
+  scene = name;
+  document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.scene === name)));
+  buildScene3d(D.scenes[name].geometry);
+  drawGallery();
+  if (D.models) drawFrames(null);
+  drawCleaning();
+  const t = (cur && D.scenes[name].traces.find(t => t.name === cur.name)) || D.scenes[name].traces[0];
+  if (t) select(t);
+}
+function setVariant(v) {
+  variant = v;
+  document.querySelectorAll('#variants button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+  if (!scene) return;  // first load: showScene draws everything
+  drawGallery(); if (cur) select(D.scenes[scene].traces.find(t => t.name === cur.name) || cur);
+}
+let pending = null;
+function applyPending() {
+  if (!pending) return;
+  D = pending; pending = null; ver = encodeURIComponent(D.updated); $('newvid').hidden = true;
+  zipLabel();
+  showScene(scene && D.scenes[scene] ? scene : Object.keys(D.scenes)[0]);
+}
+async function refresh() {
+  let d; try { d = await (await fetch('data.json', { cache: 'no-store' })).json(); } catch (e) { return; }
+  if (D && (pending ? pending.updated : D.updated) === d.updated) return;
+  if (D) {  // a new version: refresh the numbers now, the videos only when the viewer asks
+    pending = d;
+    D.progress = d.progress; D.scenes[scene].cleaning = d.scenes[scene].cleaning; D.scenes[scene].trained = d.scenes[scene].trained;
+    drawCleaning(); if (D.models) drawFrames(null); if (!(await status())) showProgress(d.progress, false);
+    $('newvid').hidden = false;
+    $('newvid').textContent = `Load the updated videos (${Object.entries(d.scenes).map(([n, x]) => `${n} ${spanTextOf(x, variant)}`).join(', ')})`;
+    return;
+  }
+  const first = !D; D = d; ver = encodeURIComponent(d.updated);
+  zipLabel();
+  const names = Object.keys(D.scenes);
+  $('status').textContent = names.map(n => `${n}: ${D.scenes[n].traces.length} traces`).join(' · ') + ` · videos updated ${D.updated}`;
+  $('models').hidden = !D.models;
+  $('mtitle').textContent = D.models === 'links' ? 'Trained models · click a frame to download its PLY (zip)' : 'Trained models';
+  $('zipsel').hidden = D.models !== 'links';
+  if (first) {
+    names.forEach(n => { const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'tab'); b.dataset.scene = n; b.textContent = n; b.onclick = () => showScene(n); $('tabs').appendChild(b); });
+    Object.entries(D.variants).forEach(([v, label]) => { const b = document.createElement('button'); b.type = 'button'; b.dataset.v = v; b.textContent = label; b.onclick = () => setVariant(v); $('variants').appendChild(b); });
+    setVariant(variant);
+  }
+  showScene(scene && D.scenes[scene] ? scene : names[0]);
+  if (!(await status())) showProgress(D.progress, false);
+}
+// the page's videos are watch-only copies: no "Save video as" (downloads = the full-size button)
+document.addEventListener('contextmenu', e => { if (e.target.tagName === 'VIDEO') e.preventDefault(); });
+window.nolaRefresh = refresh;  // manual check for a new version (console)
+refresh(); setInterval(refresh, 60000); setInterval(status, 30000);
+</script>
+</body>
+</html>
